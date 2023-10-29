@@ -30,6 +30,8 @@ DEFAULT_GID=
 # TODO: Implement setuid setgid
 # TODO: Set umask
 
+mkdir -p "$TASKMASTER_HOME/"{"$AVAILABLE_DIR","$ENABLED_DIR","$RUNNING_DIR","$STOPPING_DIR"}
+
 error() # message status
 {
 	local message="$1"
