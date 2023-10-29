@@ -1,0 +1,49 @@
+# Process count to start and keep running (default: 1)
+process_count=1
+
+# Restart condition: always, never or error (default: always)
+restart=always
+
+# Success status code (default: 0)
+success_status=0
+
+# Duration for a running task to be considered as successfully started
+min_runtime=0s
+
+# Number of tries to run a task before considering it as failed, 0 is infinite (default: 0)
+retry=0
+
+# Stop kill signal
+stop_signal=0
+
+# Stop timeout to kill the process using the KILL signal
+stop_timeout=30s
+
+# Standard output redirection: empty, absolute filepath or discard
+# -: Output to stdout
+# filepath: Output to file
+# discard: Discard output
+# Default: -
+stdout=-
+
+# Standard error output redirection: empty, absolute filepath or discard
+stderr=-
+
+# File creation mode mask
+umask=022
+
+# User id
+uid=
+
+# Group id
+gid=
+
+# Start task
+start() {
+	tail -f /dev/null
+}
+
+# Stop task
+reload() {
+	true
+}

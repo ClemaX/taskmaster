@@ -1,0 +1,387 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+TASKMASTER_HOME=.
+
+AVAILABLE_DIR=available
+ENABLED_DIR=enabled
+RUNNING_DIR=running
+STOPPING_DIR=stopping
+
+TASK_SUFFIX=.task
+RUN_SUFFIX=.pid
+
+DEFAULT_PROCESS_COUNT=1
+DEFAULT_RESTART=always
+DEFAULT_SUCCESS_STATUS=0
+DEFAULT_MIN_RUNTIME=0s
+DEFAULT_RETRY=0
+DEFAULT_STOP_SIGNAL=INT
+DEFAULT_STOP_TIMEOUT=30s
+DEFAULT_STDOUT=-
+DEFAULT_STDERR=-
+DEFAULT_UMASK=022
+DEFAULT_UID=
+DEFAULT_GID=
+
+# TODO: Implement multiple instances
+# TODO: Implement retry
+# TODO: Implement setuid setgid
+# TODO: Set umask
+
+error() # message status
+{
+	local message="$1"
+	local status="${2:-1}"
+
+	echo "$message" >&2
+
+	return "$status"
+}
+
+parse_duration() # duration
+{
+	local duration="${1:-0s}"
+
+	local suffix="${1: -1}"
+	local value="${1:0:-1}"
+
+	local factor
+
+	case "$suffix"
+	in
+		s)	factor=1;;
+		m)	factor=60;;
+		h)	factor=3600;;
+		*)	error "Invalid duration: '$duration'!"; return;;
+	esac
+
+	if [[ "$value" =~ [[:digit:]]+ ]]
+	then
+		echo "$((value * factor))"
+	else
+		error "Invalid duration: '$duration'!"; return
+	fi
+}
+
+watchdog() # name duration_s [pids]...
+{
+	local name="$1"; shift
+	local duration_s="$1"; shift
+
+	sleep "$duration_s"
+
+	for pid in "$@"
+	do
+		if [ -d "/proc/$pid" ]
+		then
+			kill -KILL "$pid"
+		fi
+	done
+
+	rm -f "$TASKMASTER_HOME/stopping/$name$RUN_SUFFIX"
+}
+
+task.has_var() # [name]...
+{
+	until [ $# -eq 0 ]
+	do
+		local name="$1"; shift
+
+		[ -n "${!name-}" ] || return 1
+	done
+}
+
+task.has_fun() # [name]...
+{
+	while [ $# -gt 0 ]
+	do
+		local name="$1"; shift
+
+		declare -f -F "$name" >/dev/null || return 1
+	done
+}
+
+task.assert_var() # task_file [name]...
+{
+	local task_file="$1"; shift
+
+	while [ $# -gt 0 ]
+	do
+		local name="$1"; shift
+
+		if ! pkg_has_var "$name"
+		then
+			echo "$task_file: Task needs a '$name' variable!" >&2
+			return 1
+		fi
+	done
+}
+
+assert_fun() # task_file [name]...
+{
+	local task_file="$1"; shift
+
+	while [ $# -gt 0 ]
+	do
+		local name="$1"; shift
+
+		if ! pkg_has_fun "$name"
+		then
+			error "$task_file: Task needs a '$name' function!"; return
+		fi
+	done
+}
+
+task.pids() # name dest_var
+{
+	local name="$1"
+	local dest_var="$2"
+	
+	local runfile="$TASKMASTER_HOME/$RUNNING_DIR/$name$RUN_SUFFIX"
+
+	if ! [ -f "$runfile" ]
+	then
+		error "Task '$name' is not running!"; return
+	fi
+
+	mapfile -t "$dest_var" < "$runfile"
+}
+
+task.is_available() # name
+{
+	local name="$1"
+	local filename="$name$TASK_SUFFIX"
+
+	[ -f "$TASKMASTER_HOME/$AVAILABLE_DIR/$filename" ]
+}
+
+task.is_enabled() # name
+{
+	local name="$1"
+	local filename="$name$TASK_SUFFIX"
+
+	[ -f "$TASKMASTER_HOME/$ENABLED_DIR/$filename" ]
+}
+
+task.is_started() # name
+{
+	local name="$1"
+	local runfile="$TASKMASTER_HOME/$RUNNING_DIR/$name$RUN_SUFFIX"
+
+	[ -f "$runfile" ]
+}
+
+task.time_started() # name
+{
+	stat -c %Y "$TASKMASTER_HOME/$RUNNING_DIR/$name$RUN_SUFFIX"
+}
+
+task.load() # name
+{
+	local name="$1"
+	local filename="$name$TASK_SUFFIX"
+
+	if task.is_available "$name"
+	then
+		# shellcheck source=/dev/null
+		source "$TASKMASTER_HOME/$AVAILABLE_DIR/$filename"
+
+		# TODO: Assert minimal functions and variable declarations
+		min_runtime_s=$(parse_duration "${min_runtime:-$DEFAULT_MIN_RUNTIME}")
+		stop_timeout_s=$(parse_duration "${stop_timeout:-$DEFAULT_STOP_TIMEOUT}")
+		stop_signal="${stop_signal:-$DEFAULT_STOP_SIGNAL}"
+	else
+		error "No task named '$name' is available!"; return
+	fi
+}
+
+task.is_running() # name
+{
+	local name="$1"
+
+	task.is_started "$name"
+
+	local pids
+
+	local runtime min_runtime_s
+
+	task.pids "$name" pids 2>/dev/null || return
+
+	for pid in "${pids[@]}"
+	do
+		kill -0 "$pid" 2>/dev/null
+	done
+
+	runtime=$(($(date +%s) - $(task.time_started "$name")))
+
+	min_runtime_s=$(
+		task.load "$name"
+
+		echo "$min_runtime_s"
+	) || return 2
+	
+	[ "$runtime" -ge "$min_runtime_s" ]
+}
+
+task.is_stopping() # name
+{
+	local name="$1"
+
+	[ -f "$TASKMASTER_HOME/$STOPPING_DIR/$name$RUN_SUFFIX" ]
+}
+
+taskmaster.enable() # name
+{
+	if ! [ $# -ge 1 ] 
+	then
+		error 'enable: Missing task name'; return
+	fi
+
+	local name="$1"
+	local filename="$name$TASK_SUFFIX"
+
+	pushd "$TASKMASTER_HOME" >/dev/null
+		if task.is_available "$name"
+		then
+			ln -vsf "../$AVAILABLE_DIR/$filename" "enabled/$filename"
+		else
+			error "No task named '$name' is available!"
+		fi
+	popd >/dev/null
+}
+
+taskmaster.disable()
+{
+	if ! [ $# -ge 1 ]
+	then
+		error 'disable: Missing task name'; return
+	fi
+
+	local name="$1"
+	local filename="$name$TASK_SUFFIX"
+
+	pushd "$TASKMASTER_HOME" >/dev/null
+		if task.is_enabled "$name"
+		then
+			rm -v "enabled/$filename"
+		else
+			error "No task named '$name' is enabled!"
+		fi
+	popd >/dev/null
+}
+
+taskmaster.start()
+{
+	if ! [ $# -ge 1 ]
+	then
+		error 'start: Missing task name'; return
+	fi
+
+	local name="$1"
+	local filename="$name$TASK_SUFFIX"
+
+	pushd "$TASKMASTER_HOME" >/dev/null
+	(
+		set -euo pipefail
+
+		task.load "$name"
+
+		start &
+
+		echo "$!" > "$TASKMASTER_HOME/$RUNNING_DIR/$name$RUN_SUFFIX"
+	)
+
+	echo "Started '$name'!"
+
+	popd >/dev/null
+}
+
+taskmaster.stop() # name
+{
+	if ! [ $# -ge 1 ]
+	then
+		error 'stop: Missing task name'; return
+	fi
+
+	local name="$1"
+
+	if ! task.is_running "$name"
+	then
+		return 0
+	fi
+
+	local filename="$name$RUN_SUFFIX"
+
+	local stop_signal stop_timeout_s
+
+	local pids
+
+	# shellcheck source=/dev/null
+	. <(
+		task.load "$name"
+
+		echo "stop_signal=$stop_signal" "stop_timeout_s=$stop_timeout_s"
+	)
+
+	task.pids "$name" pids || return
+
+	pushd "$TASKMASTER_HOME" >/dev/null
+		mv "$RUNNING_DIR/$filename" "$STOPPING_DIR/$filename"  
+
+		for pid in "${pids[@]}"
+		do
+			kill "-$stop_signal"  "$pid" || :
+		done
+
+		watchdog "$name" "$stop_timeout_s" "${pids[@]}" &
+	popd >/dev/null
+}
+
+taskmaster.restart()
+{
+	taskmaster.stop "$@"
+	taskmaster.start "$@"
+}
+
+taskmaster.reload()
+{
+	true
+}
+
+taskmaster.status() # name
+{
+	if ! [ $# -ge 1 ] 
+	then
+		error 'status: Missing task name'
+	fi
+
+	local name="$1"
+
+	task.is_enabled "$@" && echo "Enabled" || echo "Disabled"
+	task.is_started "$@" && echo "Started" || echo "Stopped"
+	task.is_running "$@" && echo "Running" || echo "Not running"
+}
+
+while read -p "taskmaster> " -ra token
+do
+	set -- "${token[@]}" 
+
+	[ "$#" -ge 1 ] || continue
+
+	cmd="$1"; shift
+
+	case "$cmd" in
+		enable)		taskmaster.enable "$@" || :;;
+		disable)	taskmaster.disable "$@" || :;;
+		start)		taskmaster.start "$@" || :;;
+		stop)		taskmaster.stop "$@" || :;;
+		restart)	taskmaster.restart "$@" || :;;
+		status)		taskmaster.status "$@" || :;;
+		exit)		exit 0;;
+		*)			echo "Unknown command '$cmd'!" >&2;;
+	esac
+done
+
+echo
