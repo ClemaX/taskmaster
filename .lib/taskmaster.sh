@@ -135,7 +135,7 @@ taskmaster.stop() # name
 
 		for pid in "${pids[@]}"
 		do
-			kill "-$stop_signal"  "$pid" || :
+			kill "-$stop_signal" "$pid" || :
 		done
 
 		watchdog "$name" "$stop_timeout_s" "${pids[@]}" &
@@ -162,7 +162,12 @@ taskmaster.status() # name
 
 	local name="$1"
 
-	task.is_enabled "$@" && echo "Enabled" || echo "Disabled"
-	task.is_started "$@" && echo "Started" || echo "Stopped"
-	task.is_running "$@" && echo "Running" || echo "Not running"
+	if ! task.is_available "$name"
+	then
+		error "status: Task '$name' does not exist!"; return
+	fi
+
+	task.is_enabled "$name" && echo "Enabled" || echo "Disabled"
+	task.is_started "$name" && echo "Started" || echo "Stopped"
+	task.is_running "$name" && echo "Running" || echo "Not running"
 }
