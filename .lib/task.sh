@@ -28,7 +28,7 @@ task.assert_var() # task_file [name]...
 	do
 		local name="$1"; shift
 
-		if ! task_has_var "$name"
+		if ! task.has_var "$name"
 		then
 			echo "$task_file: Task needs a '$name' variable!" >&2
 			return 1
@@ -44,7 +44,7 @@ task.assert_fun() # task_file [name]...
 	do
 		local name="$1"; shift
 
-		if ! task_has_fun "$name"
+		if ! task.has_fun "$name"
 		then
 			error "$task_file: Task needs a '$name' function!"; return
 		fi
@@ -106,10 +106,23 @@ task.load() # name
 		# shellcheck source=/dev/null
 		source "$TASKMASTER_HOME/$AVAILABLE_DIR/$filename"
 
-		# TODO: Assert minimal functions and variable declarations
+		# TODO: Set all values or default values
+		task.assert_fun "$name" start
+
+		process_count="${process_count:-$DEFAULT_PROCESS_COUNT}"
+		restart="${restart:-$DEFAULT_RESTART}"
+		success_status="${success_status:-$DEFAULT_SUCCESS_STATUS}"
+		retry="${retry:-$DEFAULT_RETRY}"
+
 		min_runtime_s=$(parse_duration "${min_runtime:-$DEFAULT_MIN_RUNTIME}")
 		stop_timeout_s=$(parse_duration "${stop_timeout:-$DEFAULT_STOP_TIMEOUT}")
+
 		stop_signal="${stop_signal:-$DEFAULT_STOP_SIGNAL}"
+		stdout="${stdout:-$DEFAULT_STDOUT}"
+		stderr="${stderr:-$DEFAULT_STDERR}"
+		umask="${umask:-$DEFAULT_UMASK}"
+		uid="${uid:-$DEFAULT_UID}"
+		gid="${gid:-$DEFAULT_GID}"
 	else
 		error "No task named '$name' is available!"; return
 	fi

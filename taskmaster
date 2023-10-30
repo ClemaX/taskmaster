@@ -5,6 +5,10 @@ set -euo pipefail
 SCRIPTDIR=$(dirname -- "$(readlink -f -- "$0")")
 
 TASKMASTER_LIB="$SCRIPTDIR/.lib"
+TASKMASTER_CACHE="$HOME/.cache/taskmaster"
+
+TASKMASTER_HISTFILE="$TASKMASTER_CACHE/history"
+TASKMASTER_PROMPT="taskmaster> "
 
 # shellcheck source=".lib/config.sh"
 source "$TASKMASTER_LIB/config.sh"
@@ -21,7 +25,15 @@ source "$TASKMASTER_LIB/taskmaster.sh"
 
 taskmaster.init
 
-while read -p "taskmaster> " -ra token
+mkdir -p "$TASKMASTER_CACHE"
+
+[ -f "$TASKMASTER_HISTFILE" ] || printf '' > "$TASKMASTER_HISTFILE"
+
+history -r "$TASKMASTER_HISTFILE"
+
+set -o vi
+
+while read -e -p "$TASKMASTER_PROMPT" -r -a token
 do
 	set -- "${token[@]}" 
 
@@ -30,15 +42,22 @@ do
 	cmd="$1"; shift
 
 	case "$cmd" in
-		enable)		taskmaster.enable "$@" || :;;
-		disable)	taskmaster.disable "$@" || :;;
-		start)		taskmaster.start "$@" || :;;
-		stop)		taskmaster.stop "$@" || :;;
-		restart)	taskmaster.restart "$@" || :;;
-		status)		taskmaster.status "$@" || :;;
+		enable)		taskmaster.enable "$@"	|| :;;
+		disable)	taskmaster.disable "$@"	|| :;;
+
+		start)		taskmaster.start "$@"	|| :;;
+		stop)		taskmaster.stop "$@"	|| :;;
+		restart)	taskmaster.restart "$@"	|| :;;
+		reload)		taskmaster.reload "$@"	|| :;;
+
+		status)		taskmaster.status "$@"	|| :;;
+
 		exit)		exit 0;;
-		*)			echo "Unknown command '$cmd'!" >&2;;
+
+		*)			error "Unknown command '$cmd'!" || :;;
 	esac
+
+	history -s "${token[*]}"
 done
 
-echo
+history -w "$TASKMASTER_HISTFILE"

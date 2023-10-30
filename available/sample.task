@@ -1,3 +1,6 @@
+# shellcheck shell=bash
+# shellcheck disable=SC2034
+
 # Process count to start and keep running (default: 1)
 process_count=1
 
@@ -7,17 +10,19 @@ restart=always
 # Success status code (default: 0)
 success_status=0
 
-# Duration for a running task to be considered as successfully started
-min_runtime=0s
-
 # Number of tries to run a task before considering it as failed, 0 is infinite (default: 0)
 retry=0
 
-# Stop kill signal
-stop_signal=0
+# Duration for a running task to be considered as successfully started
+# s, m and h can be used as units
+min_runtime=0s
 
 # Stop timeout to kill the process using the KILL signal
+# s, m and h can be used as units
 stop_timeout=30s
+
+# Stop kill signal
+stop_signal=0
 
 # Standard output redirection: empty, absolute filepath or discard
 # -: Output to stdout
@@ -38,12 +43,12 @@ uid=
 # Group id (Default: blank, keep group id)
 gid=
 
-# Start task
+# Start task (required)
 start() {
 	tail -f /dev/null
 }
 
-# Stop task
-reload() {
-	true
-}
+# Reload task (optional)
+# reload() {
+#	true
+#}
