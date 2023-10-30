@@ -29,13 +29,13 @@ stdout=-
 # Standard error output redirection: empty, absolute filepath or discard
 stderr=-
 
-# File creation mode mask
+# File creation mode mask (Default: 022)
 umask=022
 
-# User id
+# User id (Default: blank, keep user id)
 uid=
 
-# Group id
+# Group id (Default: blank, keep group id)
 gid=
 
 # Start task
